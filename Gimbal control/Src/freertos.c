@@ -142,7 +142,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   osThreadDef(gimbalTask, gimbal_task, osPriorityHigh, 0, 512);
-	gimbalTaskHandle = osThreadCreate(osThread(gimbalTask), NULL);
+  gimbalTaskHandle = osThreadCreate(osThread(gimbalTask), NULL);
 
 
   osThreadDef(imuTask, INS_task, osPriorityRealtime, 0, 1024);
@@ -172,11 +172,12 @@ __weak void test_task(void const * argument)
   
   for(;;)
   {
-    uint32_t tick_ms = HAL_GetTick();
-    const TargetPosition *pos = get_target_position();
-    UsbCdcTest_HeartbeatTick(tick_ms);
-    vision_diag_tick(tick_ms);
-    cold_boot_led_diag_tick(tick_ms);
+    uint32_t tick_ms = HAL_GetTick();// 读取计时器
+    const TargetPosition *pos = get_target_position();// 获取目标位置
+    UsbCdcTest_HeartbeatTick(tick_ms);// 发送心跳包
+    vision_diag_tick(tick_ms);// 更新视觉诊断信息
+    cold_boot_led_diag_tick(tick_ms);// 根据遥控、视觉链路、电机状态等刷新调试灯状态。
+    
     if(pos->data_ready==1){
 #if VISION_DEBUG_PRINT
       usart_printf("Value1: 0x%04X (%d), Value2: 0x%04X (%d)\r\n", pos->object_x, pos->object_x, pos->object_y, pos->object_y);

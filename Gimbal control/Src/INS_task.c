@@ -72,6 +72,7 @@ void get_angle(fp32 quat[4], fp32 *yaw, fp32 *pitch, fp32 *roll);
 
 extern SPI_HandleTypeDef hspi1;
 
+// 任务句柄
 static TaskHandle_t INS_task_local_handler;
 
 uint8_t gyro_dma_rx_buf[SPI_DMA_GYRO_LENGHT];
@@ -121,15 +122,17 @@ void INS_task(void const *pvParameters)
 {
     //wait a time
     osDelay(INS_TASK_INIT_TIME);
+    // IMU---BMI088---3加速度+3陀螺仪
     while(BMI088_init())
     {
         osDelay(100);
     }
+    // 磁力计---ist8310---3磁力计
     while(ist8310_init())
     {
         osDelay(100);
     }
-
+    //
     BMI088_read(bmi088_real_data.gyro, bmi088_real_data.accel, &bmi088_real_data.temp);
 
     PID_init(&imu_temp_pid, PID_POSITION, imu_temp_PID, TEMPERATURE_PID_MAX_OUT, TEMPERATURE_PID_MAX_IOUT);
@@ -141,7 +144,7 @@ void INS_task(void const *pvParameters)
     //获取当前任务的任务句柄，
     INS_task_local_handler = xTaskGetHandle(pcTaskGetName(NULL));
 
-    //set spi frequency
+    // 设置SPI频率
     hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
     
     if (HAL_SPI_Init(&hspi1) != HAL_OK)
@@ -150,14 +153,14 @@ void INS_task(void const *pvParameters)
     }
 
 
+    // 初始化SPI DMA
     SPI1_DMA_init((uint32_t)gyro_dma_tx_buf, (uint32_t)gyro_dma_rx_buf, SPI_DMA_GYRO_LENGHT);
 
     imu_start_dma_flag = 1;
 
     while (1)
     {
-        //wait spi DMA tansmit done
-        //等待SPI DMA传输
+        // 等待阻塞--ulTaskNotifyTake 的作用是：让当前任务等待一个“任务通知”，并在收到通知前阻塞自己。
         while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) != pdPASS)
         {
         }
@@ -166,24 +169,29 @@ void INS_task(void const *pvParameters)
         if(gyro_update_flag & (1 << IMU_NOTIFY_SHFITS))
         {
             gyro_update_flag &= ~(1 << IMU_NOTIFY_SHFITS);
+            // 读取陀螺仪数据
             BMI088_gyro_read_over(gyro_dma_rx_buf + BMI088_GYRO_RX_BUF_DATA_OFFSET, bmi088_real_data.gyro);
         }
 
         if(accel_update_flag & (1 << IMU_UPDATE_SHFITS))
         {
             accel_update_flag &= ~(1 << IMU_UPDATE_SHFITS);
+            // 读取加速度计数据
             BMI088_accel_read_over(accel_dma_rx_buf + BMI088_ACCEL_RX_BUF_DATA_OFFSET, bmi088_real_data.accel, &bmi088_real_data.time);
         }
 
         if(accel_temp_update_flag & (1 << IMU_UPDATE_SHFITS))
         {
             accel_temp_update_flag &= ~(1 << IMU_UPDATE_SHFITS);
+            // 读取加速度计温度数据
             BMI088_temperature_read_over(accel_temp_dma_rx_buf + BMI088_ACCEL_RX_BUF_DATA_OFFSET, &bmi088_real_data.temp);
+            // 控制IMU温度（进行加热）
             imu_temp_control(bmi088_real_data.temp);
         }
 
-
+        // 更新AHRS
         AHRS_update(INS_quat, 0.001f, bmi088_real_data.gyro, bmi088_real_data.accel, ist8310_real_data.mag);
+        // 获取欧拉角
         get_angle(INS_quat, INS_angle + INS_YAW_ADDRESS_OFFSET, INS_angle + INS_PITCH_ADDRESS_OFFSET, INS_angle + INS_ROLL_ADDRESS_OFFSET);
 
 
@@ -328,10 +336,22 @@ extern const fp32 *get_mag_data_point(void)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+  /*
+   * 这个回调由 HAL_GPIO_EXTI_IRQHandler() 间接调用。
+   * 作用是根据外部中断来源做不同处理：
+   * 1. BMI088 加速度计数据就绪中断 -> 置位加速度更新标志，必要时启动 SPI DMA。
+   * 2. BMI088 陀螺仪数据就绪中断 -> 置位陀螺仪更新标志，必要时启动 SPI DMA。
+   * 3. IST8310 磁力计数据就绪中断 -> 直接读取磁力计数据。
+   * 4. GPIO_PIN_0 软件中断 -> 唤醒 INS_task，让任务处理刚完成的 DMA 数据。
+   */
     if(GPIO_Pin == INT1_ACCEL_Pin)
     {
+    // 加速度计数据就绪，先标记“有新数据待读”
         accel_update_flag |= 1 << IMU_DR_SHFITS;
+    // 温度读取与加速度读取共用同一条 SPI 链路，也一起标记
         accel_temp_update_flag |= 1 << IMU_DR_SHFITS;
+
+    // DMA 总线空闲时，立即启动加速度相关的 SPI 读取
         if(imu_start_dma_flag)
         {
             imu_cmd_spi_dma();
@@ -339,7 +359,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if(GPIO_Pin == INT1_GYRO_Pin)
     {
+    // 陀螺仪数据就绪，标记“有新数据待读”
         gyro_update_flag |= 1 << IMU_DR_SHFITS;
+
+    // DMA 总线空闲时，立即启动陀螺仪 SPI 读取
         if(imu_start_dma_flag)
         {
             imu_cmd_spi_dma();
@@ -347,8 +370,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if(GPIO_Pin == DRDY_IST8310_Pin)
     {
+    // 磁力计数据就绪，先标记中断到达
         mag_update_flag |= 1 << IMU_DR_SHFITS;
 
+    // 这里直接读取磁力计数据，不再走任务通知链路
         if(mag_update_flag &= 1 << IMU_DR_SHFITS)
         {
             mag_update_flag &= ~(1<< IMU_DR_SHFITS);
@@ -359,12 +384,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if(GPIO_Pin == GPIO_PIN_0)
     {
-        //wake up the task
-        //唤醒任务
+    // GPIO_PIN_0 是给 INS_task 用的软件唤醒信号
+    // 说明 SPI DMA 已经完成，任务可以继续处理本次采样结果
         if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED)
         {
             static BaseType_t xHigherPriorityTaskWoken;
+
+            // 唤醒 INS_task任务（参数1：任务的句柄  参数2：要不要马上切换调度）
             vTaskNotifyGiveFromISR(INS_task_local_handler, &xHigherPriorityTaskWoken);
+            // 如果唤醒了更高优先级任务，立即请求切换
             portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
         }
     }

@@ -165,7 +165,7 @@ __weak int UsbCdcTest_GetTxState(void)
 void UsbCdcTest_HeartbeatTick(uint32_t tick_ms)
 {
     static const uint8_t heartbeat_frame[] = {0x48U, 0x42U, 0x0DU, 0x0AU}; /* "HB\r\n" */
-    usb_cdc_heartbeat_diag_t *diag = &g_usb_cdc_test.heartbeat_diag;
+    usb_cdc_heartbeat_diag_t *diag = &g_usb_cdc_test.heartbeat_diag;// 获取心跳诊断信息
     int ret;
 
     if (tick_ms < 1000U)

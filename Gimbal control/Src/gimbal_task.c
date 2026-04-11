@@ -329,15 +329,16 @@ void gimbal_task(void const *pvParameters)
     //gimbal init
     //云台初始化
     gimbal_init(&gimbal_control);
+    // 初始化目标状态
     TargetState_Init();
-    gimbal_set_mode(&gimbal_control);                    //设置云台控制模式
+    gimbal_set_mode(&gimbal_control);                    //设置云台控制模式    
     gimbal_mode_change_control_transit(&gimbal_control); //控制模式切换 控制数据过渡
     while (1)
     {
-        TargetState_Update();
+        TargetState_Update();// 更新目标状态
         gimbal_feedback_update(&gimbal_control);             //云台数据反馈
-        GimbalModeManager_Update(&gimbal_control, &mode_command);
-        gimbal_mode_change_control_transit(&gimbal_control);
+        GimbalModeManager_Update(&gimbal_control, &mode_command);// 更新云台模式管理
+        gimbal_mode_change_control_transit(&gimbal_control);// 切换模式时的控制数据过渡
         gimbal_set_control(&gimbal_control, &mode_command, TargetState_Get()); //设置云台控制量
         gimbal_control_loop(&gimbal_control);                //云台控制PID计算
 
@@ -352,7 +353,7 @@ void gimbal_task(void const *pvParameters)
 #else
         pitch_can_set_current = gimbal_control.gimbal_pitch_motor.given_current;
 #endif
-        CAN_cmd_gimbal(yaw_can_set_current, pitch_can_set_current, 0, 0);
+        CAN_cmd_gimbal(yaw_can_set_current, pitch_can_set_current, 0, 0);// 发送CAN命令
 
         // if (!(toe_is_error(YAW_GIMBAL_MOTOR_TOE) && toe_is_error(PITCH_GIMBAL_MOTOR_TOE) && toe_is_error(TRIGGER_MOTOR_TOE)))
         // {
@@ -370,7 +371,7 @@ void gimbal_task(void const *pvParameters)
         J_scope_gimbal_test();
 #endif
 
-        vTaskDelay(GIMBAL_CONTROL_TIME);
+        vTaskDelay(GIMBAL_CONTROL_TIME);// 放入阻塞态
 
 #if INCLUDE_uxTaskGetStackHighWaterMark
         gimbal_high_water = uxTaskGetStackHighWaterMark(NULL);

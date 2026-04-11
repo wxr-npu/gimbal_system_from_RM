@@ -183,6 +183,7 @@
 #define MOTOR_ECD_TO_RAD 0.000766990394f //      2*  PI  /8192
 #endif
 
+// 电机控制模式
 typedef enum
 {
     GIMBAL_MOTOR_RAW = 0, //电机原始值控制
@@ -212,26 +213,26 @@ typedef struct
 
 typedef struct
 {
-    const motor_measure_t *gimbal_motor_measure;
-    gimbal_PID_t gimbal_motor_absolute_angle_pid;
-    gimbal_PID_t gimbal_motor_relative_angle_pid;
-    pid_type_def gimbal_motor_gyro_pid;
-    gimbal_motor_mode_e gimbal_motor_mode;
-    gimbal_motor_mode_e last_gimbal_motor_mode;
-    uint16_t offset_ecd;
-    fp32 max_relative_angle; //rad
-    fp32 min_relative_angle; //rad
+  const motor_measure_t *gimbal_motor_measure;   // 电机测量数据指针（编码器/转速/电流等）
+  gimbal_PID_t gimbal_motor_absolute_angle_pid;  // 绝对角度环 PID（基于 IMU 角度）
+  gimbal_PID_t gimbal_motor_relative_angle_pid;  // 相对角度环 PID（基于编码器角度）
+  pid_type_def gimbal_motor_gyro_pid;            // 角速度环 PID（串级内环）
+  gimbal_motor_mode_e gimbal_motor_mode;         // 当前控制模式（RAW/GYRO/ENCODE）
+  gimbal_motor_mode_e last_gimbal_motor_mode;    // 上一次控制模式（用于模式切换过渡）
+  uint16_t offset_ecd;                           // 编码器零位偏移（校准得到）
+  fp32 max_relative_angle;                       // 机械允许最大相对角（rad）
+  fp32 min_relative_angle;                       // 机械允许最小相对角（rad）
 
-    fp32 relative_angle;     //rad
-    fp32 relative_angle_set; //rad
-    fp32 absolute_angle;     //rad
-    fp32 absolute_angle_set; //rad
-    fp32 motor_gyro;         //rad/s
-    fp32 motor_gyro_set;
-    fp32 motor_speed;
-    fp32 raw_cmd_current;
-    fp32 current_set;
-    int16_t given_current;
+  fp32 relative_angle;                           // 当前相对角反馈（rad）
+  fp32 relative_angle_set;                       // 相对角目标值（rad）
+  fp32 absolute_angle;                           // 当前绝对角反馈（rad）
+  fp32 absolute_angle_set;                       // 绝对角目标值（rad）
+  fp32 motor_gyro;                               // 当前角速度反馈（rad/s）
+  fp32 motor_gyro_set;                           // 角速度目标值（rad/s）
+  fp32 motor_speed;                              // 电机机械转速（预留/扩展字段）
+  fp32 raw_cmd_current;                          // RAW 模式下直接下发的电流指令
+  fp32 current_set;                              // 控制器计算得到的目标电流
+  int16_t given_current;                         // 实际发送到 CAN 的电流值（整型）
 
 } gimbal_motor_t;
 
@@ -248,14 +249,57 @@ typedef struct
     uint8_t step;
 } gimbal_step_cali_t;
 
+
+/*
+gimbal_control_t
+├─ gimbal_rc_ctrl : const RC_ctrl_t*
+├─ gimbal_INT_angle_point : const fp32*
+├─ gimbal_INT_gyro_point : const fp32*
+├─ gimbal_yaw_motor : gimbal_motor_t
+│  ├─ gimbal_motor_measure : const motor_measure_t*
+│  ├─ gimbal_motor_absolute_angle_pid : gimbal_PID_t
+│  │  ├─ kp, ki, kd
+│  │  ├─ set, get, err
+│  │  ├─ max_out, max_iout
+│  │  ├─ Pout, Iout, Dout
+│  │  └─ out
+│  ├─ gimbal_motor_relative_angle_pid : gimbal_PID_t
+│  │  ├─ kp, ki, kd
+│  │  ├─ set, get, err
+│  │  ├─ max_out, max_iout
+│  │  ├─ Pout, Iout, Dout
+│  │  └─ out
+│  ├─ gimbal_motor_gyro_pid : pid_type_def
+│  ├─ gimbal_motor_mode : gimbal_motor_mode_e
+│  ├─ last_gimbal_motor_mode : gimbal_motor_mode_e
+│  ├─ offset_ecd
+│  ├─ max_relative_angle, min_relative_angle
+│  ├─ relative_angle, relative_angle_set
+│  ├─ absolute_angle, absolute_angle_set
+│  ├─ motor_gyro, motor_gyro_set
+│  ├─ motor_speed
+│  ├─ raw_cmd_current
+│  ├─ current_set
+│  └─ given_current
+├─ gimbal_pitch_motor : gimbal_motor_t
+│  └─ (字段同上，与 yaw 轴完全对称)
+└─ gimbal_cali : gimbal_step_cali_t
+   ├─ max_yaw, min_yaw
+   ├─ max_pitch, min_pitch
+   ├─ max_yaw_ecd, min_yaw_ecd
+   ├─ max_pitch_ecd, min_pitch_ecd
+   └─ step
+
+*/
+
 typedef struct
 {
-    const RC_ctrl_t *gimbal_rc_ctrl;
-    const fp32 *gimbal_INT_angle_point;
-    const fp32 *gimbal_INT_gyro_point;
-    gimbal_motor_t gimbal_yaw_motor;
-    gimbal_motor_t gimbal_pitch_motor;
-    gimbal_step_cali_t gimbal_cali;
+    const RC_ctrl_t *gimbal_rc_ctrl;// 遥控器控制指针
+    const fp32 *gimbal_INT_angle_point;// 角度float
+    const fp32 *gimbal_INT_gyro_point;// 角速度float
+    gimbal_motor_t gimbal_yaw_motor;// yaw 电机
+    gimbal_motor_t gimbal_pitch_motor;// pitch 电机
+    gimbal_step_cali_t gimbal_cali;// 云台校准数据
 } gimbal_control_t;
 
 /**
@@ -320,21 +364,26 @@ extern bool_t cmd_cali_gimbal_hook(uint16_t *yaw_offset, uint16_t *pitch_offset,
 
 typedef struct
 {
+    // 视觉链路是否启用、目标是否有效
     uint8_t vision_enabled;
     uint8_t target_valid;
     uint8_t target_seq;
+    // 目标原始与误差信息
     uint16_t raw_x;
     uint16_t raw_y;
     int16_t error_x;
     int16_t error_y;
+    // 本周期视觉增量和手动增量
     int16_t yaw_add_mrad;
     int16_t pitch_add_mrad;
     int16_t manual_yaw_add_mrad;
     int16_t manual_pitch_add_mrad;
+    // 控制模式与目标值
     uint8_t yaw_mode;
     uint8_t pitch_mode;
     int16_t yaw_set_mrad;
     int16_t pitch_set_mrad;
+    // 输出电流与时间戳
     int16_t yaw_given_current;
     int16_t pitch_given_current;
     uint32_t control_tick;
