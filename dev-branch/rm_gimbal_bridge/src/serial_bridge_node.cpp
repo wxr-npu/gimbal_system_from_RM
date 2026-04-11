@@ -18,6 +18,7 @@
 
 namespace {
 
+// 下位机回传的诊断帧格式定义（固定 46 字节）。
 constexpr uint8_t kVisionDiagHead0 = 0xD1;
 constexpr uint8_t kVisionDiagHead1 = 0x5B;
 constexpr uint8_t kVisionDiagTail0 = 0x6B;
@@ -29,6 +30,7 @@ constexpr uint8_t kVisionDiagFlagLinkOnline = 0x04;
 constexpr uint8_t kVisionDiagFlagRcError = 0x08;
 constexpr uint8_t kVisionDiagFlagDbusToe = 0x10;
 
+// 目标候选结构体
 struct TargetCandidate {
   std::string type;
   double center_x;
@@ -37,6 +39,8 @@ struct TargetCandidate {
   double distance_to_center;
 };
 
+
+// 下位机回传的诊断帧结构体
 struct VisionDiagFrame {
   uint8_t flags;
   uint8_t seq;
@@ -64,6 +68,7 @@ struct VisionDiagFrame {
   int16_t pitch_given_current;
 };
 
+// 将整数波特率映射为 termios 常量；不支持时默认 921600。
 speed_t ToBaudRate(int baud_rate) {
   switch (baud_rate) {
     case 115200:
@@ -79,6 +84,7 @@ speed_t ToBaudRate(int baud_rate) {
   }
 }
 
+// 将浮点值限制并四舍五入到 uint16 范围，防止坐标越界---被OnTargets调用
 uint16_t ClampToUInt16(double value) {
   if (value < 0.0) {
     return 0;
@@ -89,16 +95,20 @@ uint16_t ClampToUInt16(double value) {
   return static_cast<uint16_t>(std::lround(value));
 }
 
+// 从小端字节序读取无符号 16 位整数。
 uint16_t ReadLe16(const uint8_t *data) {
   return static_cast<uint16_t>(static_cast<uint16_t>(data[0]) |
                                (static_cast<uint16_t>(data[1]) << 8));
 }
 
+// 从小端字节序读取有符号 16 位整数。
 int16_t ReadLeI16(const uint8_t *data) {
   return static_cast<int16_t>(ReadLe16(data));
 }
 
+// 计算诊断帧校验值（按协议对指定字节区间异或）。
 uint8_t VisionDiagChecksum(const uint8_t *frame) {
+  // 协议定义：校验范围为 [2..42]，与 frame[43] 比较。
   uint8_t checksum = 0;
   for (size_t i = 2; i <= 42; ++i) {
     checksum ^= frame[i];
@@ -110,16 +120,20 @@ uint8_t VisionDiagChecksum(const uint8_t *frame) {
 
 class GimbalSerialBridgeNode : public rclcpp::Node {
  public:
+  // 构造节点：加载参数、打开串口、创建订阅与诊断轮询定时器。
   GimbalSerialBridgeNode() : Node("rm_gimbal_bridge") {
+    // 视觉输入、串口与目标筛选参数。
     input_topic_ = declare_parameter<std::string>("input_topic", "/dnn_node_sample");
     serial_port_ = declare_parameter<std::string>("serial_port", "/dev/ttyS1");
     baud_rate_ = declare_parameter<int>("baud_rate", 921600);
+
     image_width_ = declare_parameter<int>("image_width", 1280);
     image_height_ = declare_parameter<int>("image_height", 1024);
     image_center_x_ = declare_parameter<double>("image_center_x", image_width_ / 2.0);
     image_center_y_ = declare_parameter<double>("image_center_y", image_height_ / 2.0);
     min_confidence_ = declare_parameter<double>("min_confidence", 0.5);
     enemy_prefix_ = declare_parameter<std::string>("enemy_prefix", "");
+
     selection_mode_ = declare_parameter<std::string>("selection_mode", "closest");
     log_selected_target_ = declare_parameter<bool>("log_selected_target", true);
     log_diag_feedback_ = declare_parameter<bool>("log_diag_feedback", true);
@@ -129,20 +143,23 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
     lower_vision_latch_ms_ = declare_parameter<int>("lower_vision_latch_ms", 5000);
     target_hold_ms_ = declare_parameter<int>("target_hold_ms", 300);
 
+
     if (!OpenSerialPort()) {
       RCLCPP_ERROR(get_logger(), "Serial port init failed: %s", serial_port_.c_str());
     }
-
+    // 订阅视觉目标，触发回调函数---OnTargets
     subscription_ = create_subscription<ai_msgs::msg::PerceptionTargets>(
       input_topic_,
       rclcpp::SensorDataQoS(),
       std::bind(&GimbalSerialBridgeNode::OnTargets, this, std::placeholders::_1));
 
+    // 周期轮询下位机诊断反馈，与目标回调解耦，触发定时器回调函数---PollDiagnostics
     diag_timer_ = create_wall_timer(
       std::chrono::milliseconds(20),
       std::bind(&GimbalSerialBridgeNode::PollDiagnostics, this));
   }
 
+  // 析构节点：关闭串口文件描述符，释放系统资源。
   ~GimbalSerialBridgeNode() override {
     if (serial_fd_ >= 0) {
       close(serial_fd_);
@@ -151,6 +168,7 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
   }
 
  private:
+  // 配置串口+打开串口---发送到下位机时调用
   bool OpenSerialPort() {
     if (serial_fd_ >= 0) {
       close(serial_fd_);
@@ -183,6 +201,7 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
     tty.c_iflag &= ~(INLCR | ICRNL | IGNCR);
     tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     tty.c_oflag &= ~OPOST;
+    // 非阻塞读取：由定时器轮询 read() 聚合数据。
     tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
 
@@ -196,43 +215,54 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
     return true;
   }
 
+  // 串口写失败后的恢复入口：记录告警并重新打开串口。---发送到下位机时调用
   bool ReopenSerialPort() {
     RCLCPP_WARN(get_logger(), "Reopening serial port: %s", serial_port_.c_str());
     return OpenSerialPort();
   }
 
+  // 根据下位机视觉使能门控判断当前是否允许下发控制帧。---被OnTargets调用
   bool LowerVisionControlAllowed() const {
+    // 可选“下位机视觉使能门控”：未使能时只看反馈不下发目标。
     if (!require_lower_vision_enabled_) {
       return true;
     }
     return lower_vision_latched_;
   }
 
+  // 视觉目标回调
   void OnTargets(const ai_msgs::msg::PerceptionTargets::SharedPtr msg) {
+    // 1) 基础保护：消息空或串口未就绪时直接返回。
     if (!msg || serial_fd_ < 0) {
       return;
     }
 
+    // 2) 先按当前策略从本帧检测结果中选目标---调用函数SelectTarget---从检测结果中挑选一个最优目标。
     auto selected = SelectTarget(*msg);
     const auto stamp = now();
 
+    // 3) 若本帧选到目标，刷新“最近有效目标”；若未选到则尝试短时沿用上一目标。
     if (selected.has_value()) {
       last_target_ = selected;
       last_target_stamp_ = stamp;
     } else if (last_target_.has_value()) {
+      // 短暂丢检时保留上一帧目标，降低抖动。
       const auto age = stamp - last_target_stamp_;
       if (age <= rclcpp::Duration::from_seconds(static_cast<double>(target_hold_ms_) / 1000.0)) {
         selected = last_target_;
       }
     }
 
+    // 4) 仍无可用目标则结束本次回调。
     if (!selected.has_value()) {
       return;
     }
 
+    // 5) 将中心坐标转换为 uint16（带边界裁剪）。
     const uint16_t x = ClampToUInt16(selected->center_x);
     const uint16_t y = ClampToUInt16(selected->center_y);
 
+    // 6) 门控判定：若下位机未反馈视觉使能，则本次不下发控制帧。
     if (!LowerVisionControlAllowed()) {
       RCLCPP_INFO_THROTTLE(
         get_logger(), *get_clock(), 1000,
@@ -241,8 +271,10 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
       return;
     }
 
+    // 7) 发送到下位机。
     SendFrame(x, y);
 
+    // 8) 日志
     if (log_selected_target_) {
       RCLCPP_INFO_THROTTLE(
         get_logger(), *get_clock(), 500,
@@ -251,6 +283,7 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
     }
   }
 
+  // 定时器触发回调---解析下位机传来的数据包
   void PollDiagnostics() {
     std::array<uint8_t, 256> buffer {};
     ssize_t count;
@@ -261,16 +294,19 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
     do {
       count = read(serial_fd_, buffer.data(), buffer.size());
       if (count > 0) {
+        // 将串口分片数据拼接到环外缓冲，后续按协议帧解析。
         diag_rx_buffer_.insert(diag_rx_buffer_.end(), buffer.begin(), buffer.begin() + count);
       }
     } while (count > 0);
-
+    // 解析累积的诊断数据。
     ParseDiagnostics();
   }
 
+  // 解析下位机数据
   void ParseDiagnostics() {
     while (diag_rx_buffer_.size() >= kVisionDiagFrameSize) {
       if (diag_rx_buffer_[0] != kVisionDiagHead0 || diag_rx_buffer_[1] != kVisionDiagHead1) {
+        // 帧头不同步时逐字节丢弃，直到重新对齐。
         diag_rx_buffer_.erase(diag_rx_buffer_.begin());
         continue;
       }
@@ -278,10 +314,12 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
       const auto *frame = diag_rx_buffer_.data();
       if (frame[44] != kVisionDiagTail0 || frame[45] != kVisionDiagTail1 ||
           VisionDiagChecksum(frame) != frame[43]) {
+        // 帧尾或校验失败同样逐字节重同步，避免整包误丢。
         diag_rx_buffer_.erase(diag_rx_buffer_.begin());
         continue;
       }
 
+      // 按小端格式解包诊断数据。
       const VisionDiagFrame diag {
         frame[2],
         frame[3],
@@ -314,6 +352,7 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
 
       const bool vision_enabled = (diag.flags & kVisionDiagFlagVisionEnabled) != 0;
       if (vision_enabled) {
+        // 仅在收到“视觉使能”反馈时放行上位机下发目标。
         lower_vision_latched_ = true;
         lower_vision_latched_stamp_ = last_diag_stamp_;
       } else {
@@ -341,9 +380,11 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
     }
   }
 
+  // 从检测结果中挑选一个最优目标---被OnTargets调用
   std::optional<TargetCandidate> SelectTarget(const ai_msgs::msg::PerceptionTargets &msg) const {
     std::optional<TargetCandidate> best;
     for (const auto &target : msg.targets) {
+      // 支持按敌我前缀过滤类型名（例如 red_ / blue_）。
       if (!enemy_prefix_.empty() && target.type.rfind(enemy_prefix_, 0) != 0) {
         continue;
       }
@@ -368,6 +409,7 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
         best = current;
         continue;
       }
+      // 二选一策略：最高置信度 / 最接近图像中心。
       if (selection_mode_ == "highest_confidence") {
         if (current.confidence > best->confidence) {
           best = current;
@@ -379,7 +421,9 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
     return best;
   }
 
+  // 发送到下位机
   void SendFrame(uint16_t x, uint16_t y) {
+    // 上行控制帧：FA FB xL xH yL yH FC FD。
     const std::array<uint8_t, 8> frame = {
       0xFA, 0xFB,
       static_cast<uint8_t>(x & 0xFF),
@@ -406,6 +450,7 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
       return;
     }
 
+    // 一次重连后重发，兼顾实时性与简单容错。
     written = write(serial_fd_, frame.data(), frame.size());
     if (written != static_cast<ssize_t>(frame.size())) {
       RCLCPP_WARN_THROTTLE(
@@ -442,6 +487,7 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
   int serial_fd_ = -1;
 };
 
+// ROS2 程序入口：初始化、运行节点、自旋退出后清理。
 int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<GimbalSerialBridgeNode>());

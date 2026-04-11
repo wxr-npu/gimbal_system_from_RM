@@ -81,8 +81,7 @@ class DNNNodeSample : public hobot::dnn_node::DnnNode {
   // 实现基类的纯虚接口，用于配置Node参数
   int SetNodePara() override;
   // 实现基类的虚接口，将解析后结构化的算法输出数据封装成ROS Msg后发布
-  int PostProcess(const std::shared_ptr<hobot::dnn_node::DnnNodeOutput>&
-                      node_output) override;
+  int PostProcess(const std::shared_ptr<hobot::dnn_node::DnnNodeOutput>& node_output) override;
 
  private:
   // 算法输入图片数据的宽和高
@@ -90,16 +89,16 @@ class DNNNodeSample : public hobot::dnn_node::DnnNode {
   int model_input_height_ = -1;
 
   // 图片消息订阅者
-  rclcpp::Subscription<hbm_img_msgs::msg::HbmMsg1080P>::ConstSharedPtr
-      ros_img_subscription_ = nullptr;
+  rclcpp::Subscription<hbm_img_msgs::msg::HbmMsg1080P>::ConstSharedPtr ros_img_subscription_ = nullptr;
   // 算法推理结果消息发布者
-  rclcpp::Publisher<ai_msgs::msg::PerceptionTargets>::SharedPtr msg_publisher_ =
-      nullptr;
-
+  rclcpp::Publisher<ai_msgs::msg::PerceptionTargets>::SharedPtr msg_publisher_ = nullptr;
   // 图片消息订阅回调
   void FeedImg(const hbm_img_msgs::msg::HbmMsg1080P::ConstSharedPtr msg);
 };
 
+
+
+// 构造函数
 DNNNodeSample::DNNNodeSample(const std::string& node_name,
                              const rclcpp::NodeOptions& options)
     : hobot::dnn_node::DnnNode(node_name, options) {
@@ -110,7 +109,7 @@ DNNNodeSample::DNNNodeSample(const std::string& node_name,
     rclcpp::shutdown();
   }
 
-  // 创建消息订阅者，从摄像头节点订阅图像消息
+  // 创建消息订阅者，从摄像头节点订阅图像消息---订阅到消息时就触发回调函数
   ros_img_subscription_ =
       this->create_subscription<hbm_img_msgs::msg::HbmMsg1080P>(
           "/hbmem_img",
@@ -121,6 +120,8 @@ DNNNodeSample::DNNNodeSample(const std::string& node_name,
       "/dnn_node_sample", 10);
 }
 
+
+// 设置节点参数----模型路径、推理任务类型、任务数
 int DNNNodeSample::SetNodePara() {
   if (!dnn_node_para_ptr_) return -1;
   // 指定算法推理使用的模型文件路径
@@ -140,6 +141,8 @@ int DNNNodeSample::SetNodePara() {
   return 0;
 }
 
+
+// 私有回调函数
 void DNNNodeSample::FeedImg(
     const hbm_img_msgs::msg::HbmMsg1080P::ConstSharedPtr img_msg) {
   if (!rclcpp::ok() || !img_msg) {

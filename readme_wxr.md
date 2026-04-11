@@ -20,19 +20,154 @@
 
 
 各包定位：
-旧版
+### 旧版
 - armor_detector：传统视觉装甲板识别旧方案
 - rm_camera_driver：大恒相机驱动
 - rm_camera_driver_nv12：大恒相机驱动
 
-主线
-- hik_camera：工业相机采集。
-- rm_armor_detection：装甲板检测主链
-- rm_gimbal_bridge：上位机到下位机协议桥接
+### 主线
+#### - hik_camera：工业相机采集。
+```bash
+ros2 launch hik_camera hik_camera.launch.py #自启动同
+```
+##### 启动的节点
+/hik_camera
+/hik_camera
+  Subscribers:
+                                                    //没有订阅话题
+  Publishers:
+    /camera_info: sensor_msgs/msg/CameraInfo        //图像信息
+    /hbmem_img: hbm_img_msgs/msg/HbmMsg1080P        //hbmem 共享内存图像
+    /image_raw: sensor_msgs/msg/Image               //标准 ROS 图像
 
 
 
-主线的其他扩展
+  Service Servers:
+    /hik_camera/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /hik_camera/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /hik_camera/get_parameters: rcl_interfaces/srv/GetParameters
+    /hik_camera/list_parameters: rcl_interfaces/srv/ListParameters
+    /hik_camera/set_parameters: rcl_interfaces/srv/SetParameters
+    /hik_camera/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+    /set_camera_info: sensor_msgs/srv/SetCameraInfo
+
+
+#### - rm_armor_detection：装甲板检测主链
+运行检测节点
+```bash
+ros2 launch rm_armor_detection rm_armor_detection.launch.py 
+# 自启动运行的指令
+ros2 run rm_armor_detection rm_armor_detection #自启动 
+#
+```
+##### 启动的节点
+/dnn_node_sample
+/dnn_node_sample
+  Subscribers:
+    /hbmem_img: hbm_img_msgs/msg/HbmMsg1080P            //订阅了内存共享图像
+
+  Publishers:
+    /dnn_node_sample: ai_msgs/msg/PerceptionTargets     //输出的目标
+
+摄像头获取数据->触发回调函数（FeedImg）->预处理（得到input）->推演（Run）->推理结果回调（PostProcess）
+->解析模型输出结果（parse）->发布ROS话题
+
+
+
+
+  Service Servers:
+    /dnn_node_sample/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /dnn_node_sample/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /dnn_node_sample/get_parameters: rcl_interfaces/srv/GetParameters
+    /dnn_node_sample/list_parameters: rcl_interfaces/srv/ListParameters
+    /dnn_node_sample/set_parameters: rcl_interfaces/srv/SetParameters
+    /dnn_node_sample/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+
+
+
+如果需要网页显示：
+```bash
+export WEB_SHOW=TRUE
+ros2 launch rm_armor_detection rm_armor_detection.launch.py
+
+```
+
+运行桌面可视化窗口
+在 RDK-X5 图形桌面中执行：
+```bash
+source /opt/tros/humble/setup.bash
+source install/setup.bash
+export DISPLAY=:0
+export XAUTHORITY=/home/sunrise/.Xauthority
+ros2 run rm_armor_detection rm_armor_detection_visualizer #自启动同
+```
+    该窗口会：
+    - 订阅 `/image_raw`
+    - 订阅 `/dnn_node_sample`
+    - 在图上绘制检测框、类别、置信度和关键点
+##### 启动的节点
+/rm_autoaim_visualizer
+/rm_autoaim_visualizer
+  Subscribers:
+    /dnn_node_sample: ai_msgs/msg/PerceptionTargets
+    /image_raw: sensor_msgs/msg/Image
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /rosout: rcl_interfaces/msg/Log
+  Service Servers:
+    /rm_autoaim_visualizer/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /rm_autoaim_visualizer/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /rm_autoaim_visualizer/get_parameters: rcl_interfaces/srv/GetParameters
+    /rm_autoaim_visualizer/list_parameters: rcl_interfaces/srv/ListParameters
+    /rm_autoaim_visualizer/set_parameters: rcl_interfaces/srv/SetParameters
+    /rm_autoaim_visualizer/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+
+
+
+#### - rm_gimbal_bridge：上位机到下位机协议桥接
+运行
+```bash
+ros2 launch rm_gimbal_bridge rm_gimbal_bridge.launch.py
+# 自启动运行的指令
+ros2 run rm_gimbal_bridge rm_gimbal_bridge_node #自启动（同）
+#
+```
+##### 启动的节点
+/rm_gimbal_bridge
+/rm_gimbal_bridge
+  Subscribers:
+    /dnn_node_sample: ai_msgs/msg/PerceptionTargets  //模型推演之后经过处理的结果
+
+  Publishers:
+                                                    //没有发布话题
+
+
+
+
+
+                                                    
+  Service Servers:
+    /rm_gimbal_bridge/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /rm_gimbal_bridge/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /rm_gimbal_bridge/get_parameters: rcl_interfaces/srv/GetParameters
+    /rm_gimbal_bridge/list_parameters: rcl_interfaces/srv/ListParameters
+    /rm_gimbal_bridge/set_parameters: rcl_interfaces/srv/SetParameters
+    /rm_gimbal_bridge/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+
+
+整机启动
+```bash
+ros2 launch rm_gimbal_bridge rm_autoaim_system.launch.py
+```
+
+示例：
+```bash
+ros2 launch rm_gimbal_bridge rm_autoaim_system.launch.py serial_port:=/dev/ttyS1 enemy_prefix:=blue_
+```
+
+
+### 主线的其他扩展
 - rm_interfaces：消息与服务定义
 
 - rm_utils：公共工具库

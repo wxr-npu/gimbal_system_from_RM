@@ -28,6 +28,7 @@ class HikCameraNode : public rclcpp::Node {
   : Node("hik_camera", options) {
     RCLCPP_INFO(get_logger(), "Starting HikCameraNode");
 
+    // 读取运行参数，方便通过 launch 或动态参数调整驱动行为。
     use_sensor_data_qos_ = declare_parameter("use_sensor_data_qos", true);
     camera_name_ = declare_parameter("camera_name", "hik_camera");
     frame_id_ = declare_parameter("frame_id", "camera_optical_frame");
@@ -37,16 +38,18 @@ class HikCameraNode : public rclcpp::Node {
       "camera_info_url", "package://hik_camera/config/camera_info.yaml");
 
     auto qos = use_sensor_data_qos_ ? rmw_qos_profile_sensor_data : rmw_qos_profile_default;
+    // 同时发布标准 ROS 图像和 hbmem 共享内存图像，适配不同下游模块。
     camera_pub_ = image_transport::create_camera_publisher(this, "image_raw", qos);
-    hbmem_pub_ = create_publisher<hbm_img_msgs::msg::HbmMsg1080P>(
-      "/hbmem_img", rclcpp::SensorDataQoS());
+    hbmem_pub_ = create_publisher<hbm_img_msgs::msg::HbmMsg1080P>("/hbmem_img", rclcpp::SensorDataQoS());
 
-    camera_info_manager_ =
-      std::make_unique<camera_info_manager::CameraInfoManager>(this, camera_name_);
+    // 这里通过 camera_info_manager 读取标定文件，并把结果保存到 camera_info_msg_ 中。
+    // 其中 camera_info_url_ 指向 yaml 标定文件，loadCameraInfo 会把内参、畸变参数等写入消息。
+    camera_info_manager_ = std::make_unique<camera_info_manager::CameraInfoManager>(this, camera_name_);
     if (camera_info_manager_->validateURL(camera_info_url_)) {
       camera_info_manager_->loadCameraInfo(camera_info_url_);
       camera_info_msg_ = camera_info_manager_->getCameraInfo();
     }
+    // 将当前相机坐标系名称写入 camera_info，保证图像和标定信息使用同一个 frame_id。
     camera_info_msg_.header.frame_id = frame_id_;
 
     if (!OpenCamera()) {
@@ -75,6 +78,7 @@ class HikCameraNode : public rclcpp::Node {
     MV_CC_DEVICE_INFO_LIST device_list;
     std::memset(&device_list, 0, sizeof(device_list));
 
+    // 枚举可用的海康相机，优先使用检测到的第一台设备。
     int ret = MV_CC_EnumDevices(MV_USB_DEVICE | MV_GIGE_DEVICE, &device_list);
     if (ret != MV_OK) {
       RCLCPP_ERROR(get_logger(), "MV_CC_EnumDevices failed: 0x%x", ret);
@@ -97,16 +101,19 @@ class HikCameraNode : public rclcpp::Node {
       return false;
     }
 
+    // 关闭外部触发，改为连续采集模式。
     int ret_enum = MV_CC_SetEnumValue(camera_handle_, "TriggerMode", 0);
     if (ret_enum != MV_OK) {
       RCLCPP_WARN(get_logger(), "Failed to set TriggerMode=Off: 0x%x", ret_enum);
     }
 
+    // 设置连续采集，避免只出单帧。
     ret_enum = MV_CC_SetEnumValue(camera_handle_, "AcquisitionMode", 2);
     if (ret_enum != MV_OK) {
       RCLCPP_WARN(get_logger(), "Failed to set AcquisitionMode=Continuous: 0x%x", ret_enum);
     }
 
+    // 应用初始曝光和增益参数。
     int ret_float = MV_CC_SetFloatValue(camera_handle_, "ExposureTime", exposure_time_);
     if (ret_float != MV_OK) {
       RCLCPP_WARN(get_logger(), "Failed to set ExposureTime: 0x%x", ret_float);
@@ -123,6 +130,7 @@ class HikCameraNode : public rclcpp::Node {
       return false;
     }
 
+    // 预分配图像缓存，减少循环采集时的动态内存申请。
     image_msg_.header.frame_id = frame_id_;
     image_msg_.encoding = sensor_msgs::image_encodings::RGB8;
     image_msg_.height = img_info_.nHeightValue;
@@ -161,8 +169,10 @@ class HikCameraNode : public rclcpp::Node {
     bool first_frame_logged = false;
 
     while (running_.load() && rclcpp::ok()) {
+      // 从相机缓冲区取一帧原始数据，超时则继续等待。
       MV_FRAME_OUT out_frame;
       std::memset(&out_frame, 0, sizeof(out_frame));
+      // 获取图像
       int ret = MV_CC_GetImageBuffer(camera_handle_, &out_frame, 1000);
       if (ret != MV_OK) {
         RCLCPP_WARN_THROTTLE(
@@ -188,6 +198,7 @@ class HikCameraNode : public rclcpp::Node {
       convert_param_.pDstBuffer = image_msg_.data.data();
       convert_param_.nDstBufferSize = image_msg_.data.size();
 
+      // 将相机原始像素格式统一转换成 RGB8，便于 ROS 图像消费。
       ret = MV_CC_ConvertPixelType(camera_handle_, &convert_param_);
       MV_CC_FreeImageBuffer(camera_handle_, &out_frame);
 
@@ -199,6 +210,7 @@ class HikCameraNode : public rclcpp::Node {
 
       image_msg_.header.stamp = now();
       camera_info_msg_.header = image_msg_.header;
+      // 同一帧同时发布标准图像和 NV12 共享内存消息。
       PublishHbmem(image_msg_.header.stamp);
       if (!first_frame_logged) {
         RCLCPP_INFO(
@@ -253,6 +265,7 @@ class HikCameraNode : public rclcpp::Node {
 
     cv::Mat rgb(height, width, CV_8UC3, image_msg_.data.data());
     cv::Mat yuv_i420;
+    // 先转成 I420，再手工整理成 NV12，和下游共享内存消息格式保持一致。
     cv::cvtColor(rgb, yuv_i420, cv::COLOR_RGB2YUV_I420);
 
     const uint8_t *i420 = yuv_i420.ptr<uint8_t>();

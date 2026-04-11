@@ -24,6 +24,7 @@ namespace hobot {
 namespace dnn_node {
 namespace dnn_node_sample {
  
+//---------------------------------------- 结构体 ------------------------------------------------------
 // YOLOv8 模型量化后处理配置结构体
 struct PTQYolo8Config {
   std::vector<int> strides;                         // 特征图下采样步长
@@ -33,6 +34,8 @@ struct PTQYolo8Config {
   std::vector<std::vector<float>> dequantize_scale; // 反量化系数（当前未使用）
 };
 
+
+//---------------------------------------- 全局变量 ------------------------------------------------------
 // 后处理参数配置
 float score_threshold_ = 0.25;           // 分数阈值，低于此值的检测框被丢弃
 float conf_thres_raw = -log(1 / score_threshold_ - 1); // 原始分数阈值（Sigmoid反函数）
@@ -54,7 +57,7 @@ PTQYolo8Config yolo8_config_ = {
     {"blue_sentry_0", "blue_1", "blue_2", "blue_3", "blue_4","blue_5","blue_outpost_6", "blue_7", "blue_base_8",
     "red_sentry_0", "red_1", "red_2", "red_3", "red_4","red_5","red_outpost_6", "red_7", "red_base_8"}};
 
-
+//--------------------------------------- 函数声明 ---------------------------------------
 void ParseTensor(std::shared_ptr<hobot::dnn_node::DnnNodeOutput> tensor,
                  std::vector<YoloV8Result> &results,
                  std::vector<int> &order,
@@ -76,6 +79,10 @@ inline size_t argmax(ForwardIterator first, ForwardIterator last) {
   return std::distance(first, std::max_element(first, last));
 }
 
+
+//-------------------------------------函数实现 ------------------------------------------------
+// 仅本文件可见
+// 在单个尺度特征图上，把模型原始输出张量解码成候选目标（框 + 类别 + 关键点 + 分数）
 void ParseTensor(std::shared_ptr<hobot::dnn_node::DnnNodeOutput> node_output,
                  std::vector<YoloV8Result> &results,
                  std::vector<int> &order,
@@ -206,6 +213,8 @@ void ParseTensor(std::shared_ptr<hobot::dnn_node::DnnNodeOutput> node_output,
   }
 }
 
+
+// 全局可见
 /* 主解析函数：整合多尺度检测结果并执行NMS
    node_output: 模型输出数据
    results:     最终输出结果 */
