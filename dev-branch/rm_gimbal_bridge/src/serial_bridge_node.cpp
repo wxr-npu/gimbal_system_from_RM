@@ -315,7 +315,6 @@ class GimbalSerialBridgeNode : public rclcpp::Node {
       const auto *frame = diag_rx_buffer_.data();
       if (frame[44] != kVisionDiagTail0 || frame[45] != kVisionDiagTail1 ||
           VisionDiagChecksum(frame) != frame[43]) {
-        // 帧尾或校验失败同样逐字节重同步，避免整包误丢。
         diag_rx_buffer_.erase(diag_rx_buffer_.begin());
         continue;
       }

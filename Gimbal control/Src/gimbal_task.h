@@ -122,7 +122,23 @@
 #define VISION_CENTER_Y           (VISION_IMAGE_HEIGHT * 0.5f)
 #define VISION_X_DEADBAND         8.0f
 #define VISION_Y_DEADBAND         8.0f
+#define VISION_X_DEADBAND         8.0f
+#define VISION_Y_DEADBAND         8.0f
 #define VISION_YAW_PIXEL_TO_RAD   0.000014f
+#define VISION_PITCH_PIXEL_TO_RAD 0.000014f
+#define VISION_YAW_PID_KP         0.000095f
+#define VISION_YAW_PID_KI         0.0f
+#define VISION_YAW_PID_KD         0.0f
+#define VISION_PITCH_PID_KP       0.000090f
+#define VISION_PITCH_PID_KI       0.0f
+#define VISION_PITCH_PID_KD       0.0f
+#define VISION_PID_MAX_IOUT       0.0f
+#define VISION_PID_MAX_OUT        VISION_MAX_ANGLE_STEP
+#define VISION_MAX_ANGLE_STEP     0.0120f
+#define VISION_ERROR_SMOOTH_ALPHA 0.24f
+#define VISION_ERROR_FAST_ALPHA   0.55f
+#define VISION_FAST_ERROR_THRESHOLD 96.0f
+#define GIMBAL_PITCH_FOLLOW_MAX_ANGLE 0.7853982f
 #define VISION_PITCH_PIXEL_TO_RAD 0.000014f
 #define VISION_YAW_PID_KP         0.000095f
 #define VISION_YAW_PID_KI         0.0f
@@ -265,76 +281,6 @@ typedef struct
     uint16_t min_pitch_ecd;
     uint8_t step;
 } gimbal_step_cali_t;
-
-
-/*
-gimbal_control_t
-├─ gimbal_rc_ctrl : const RC_ctrl_t*
-├─ gimbal_INT_angle_point : const fp32*
-├─ gimbal_INT_gyro_point : const fp32*
-├─ gimbal_yaw_motor : gimbal_motor_t
-│  ├─ gimbal_motor_measure : const motor_measure_t*
-│  ├─ gimbal_motor_absolute_angle_pid : gimbal_PID_t
-│  │  ├─ kp, ki, kd
-│  │  ├─ set, get, err
-│  │  ├─ max_out, max_iout
-│  │  ├─ Pout, Iout, Dout
-│  │  └─ out
-│  ├─ gimbal_motor_relative_angle_pid : gimbal_PID_t
-│  │  ├─ kp, ki, kd
-│  │  ├─ set, get, err
-│  │  ├─ max_out, max_iout
-│  │  ├─ Pout, Iout, Dout
-│  │  └─ out
-│  ├─ gimbal_motor_gyro_pid : pid_type_def
-│  ├─ gimbal_motor_mode : gimbal_motor_mode_e
-│  ├─ last_gimbal_motor_mode : gimbal_motor_mode_e
-│  ├─ offset_ecd
-│  ├─ max_relative_angle, min_relative_angle
-│  ├─ relative_angle, relative_angle_set
-│  ├─ absolute_angle, absolute_angle_set
-│  ├─ motor_gyro, motor_gyro_set
-│  ├─ motor_speed
-│  ├─ raw_cmd_current
-│  ├─ current_set
-│  └─ given_current
-├─ gimbal_pitch_motor : gimbal_motor_t
-│  └─ (字段同上，与 yaw 轴完全对称)
-└─ gimbal_cali : gimbal_step_cali_t
-   ├─ max_yaw, min_yaw
-   ├─ max_pitch, min_pitch
-   ├─ max_yaw_ecd, min_yaw_ecd
-   ├─ max_pitch_ecd, min_pitch_ecd
-   └─ step
-
-*/
-
-typedef struct
-{
-    fp32 kp;
-    fp32 ki;
-    fp32 kd;
-    fp32 max_out;
-    fp32 max_iout;
-    fp32 iout;
-    fp32 last_err;
-    uint8_t initialized;
-} vision_pid_t;
-
-typedef enum
-{
-    VISION_CONTROLLER_P = 0,
-    VISION_CONTROLLER_PI_PREDICT = 1,
-    VISION_CONTROLLER_LQR_EXPERIMENT = 2,
-} vision_controller_type_e;
-
-typedef struct
-{
-    vision_controller_type_e type;
-    uint8_t enable_prediction;
-    uint8_t reserved0;
-    uint8_t reserved1;
-} vision_controller_profile_t;
 
 typedef struct
 {
