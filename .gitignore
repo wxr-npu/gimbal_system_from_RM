@@ -49,3 +49,6 @@ __pycache__/
 # Temp scripts
 # =========================
 tmp_*.exp
+
+
+Gimbal control/build/*
