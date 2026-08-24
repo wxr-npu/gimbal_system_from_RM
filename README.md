@@ -1,16 +1,5 @@
 # TianAim / gimbal_system
 
-<p align="center">
-  <img src="assets/tianaim_readme.svg" alt="TianAim auto-aim runtime chain" width="100%">
-</p>
-
-<p align="center">
-  <a href="https://github.com/Batmancris/gimbal_system/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Batmancris/gimbal_system?style=for-the-badge&logo=github&label=stars"></a>
-  <a href="https://github.com/Batmancris/gimbal_system/watchers"><img alt="GitHub watchers" src="https://img.shields.io/github/watchers/Batmancris/gimbal_system?style=for-the-badge&logo=github&label=watch"></a>
-  <a href="https://github.com/Batmancris/gimbal_system/commits"><img alt="Last commit" src="https://img.shields.io/github/last-commit/Batmancris/gimbal_system?style=for-the-badge"></a>
-  <a href="https://github.com/Batmancris/gimbal_system"><img alt="ROS2" src="https://img.shields.io/badge/ROS2-TROS%20%2F%20RDK--X5-39d5ff?style=for-the-badge"></a>
-</p>
-
 ## 产品定位
 
 TianAim 是 Tianbot 云台视觉跟随系统的一体化工作区，覆盖：
@@ -87,3 +76,22 @@ ssh rdk-x5 "tmux -L autoaim kill-server 2>/dev/null; pkill -f 'ros2 run' || true
 - 云台桥接: `ros2_ws/src/rm_gimbal_bridge/README.md`
 - bear 检测: `ros2_ws/src/rm_bear_detection/README.md`
 - STM32 固件: `firmware/stm32_gimbal_control/README.md`
+
+
+# 训练信息
+Vehicle YOLOv8x 4090 Summary
+
+Source: migrated from the standalone local training workspace on 2026-04-11.
+
+Known training summary from the original quick-start notes:
+
+    best checkpoint: runs/vehicle_yolov8x_4090/weights/best.pt
+    validation mAP50: about 0.995
+    validation mAP50-95: about 0.71184
+    best validation checkpoint appeared around epoch 7
+
+Repository policy for this migration:
+
+    keep scripts, configs, and reports in Git
+    keep raw datasets, .rar archives, generated predictions, and heavyweight checkpoints out of Git
+    if a checkpoint must be tracked later, add it explicitly with approval and document its provenance
