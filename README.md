@@ -376,3 +376,83 @@ The preferred future product name is `TianAim`, but this update intentionally av
 - audit: `docs/repo_audit.md`
 - structure and migration notes: `docs/architecture.md`
 - backlog: `docs/backlog.md`
+
+---
+简化文件结构
+# models
+
+This directory is the product-facing anchor for model artifacts and metadata.
+
+Recommended substructure when the workflow matures:
+
+```text
+models/
+├── checkpoints/
+├── exports/
+├── calibration/
+└── reports/
+```
+
+Guidance:
+
+- keep small configs, manifests, and reports in Git
+- avoid committing large weights unless explicitly approved
+- record which dataset split and training config produced each export
+
+
+# firmware
+
+This directory is the product-facing transition anchor for the future firmware layout.
+
+Current reality:
+
+- the active firmware project is still `Gimbal control/`
+
+Target direction:
+
+```text
+firmware/
+└── stm32_gimbal_control/
+```
+
+Why it is not moved yet:
+
+- the current Makefile and local workflows already reference `Gimbal control/`
+- the current directory name contains a space, which is not ideal, but renaming it prematurely would be high risk
+- the move should happen only after validating local and remote references
+# datasets
+
+[中文](#中文) | [English](#english)
+
+## 中文
+
+### 目录约定
+
+本目录用于 TianAim 未来的数据闭环，不直接替代当前运行代码。
+
+当前骨架：
+
+```text
+datasets/
+├── raw/         # 原始采集图像
+├── labeled/     # 标注后的数据
+├── splits/      # train/val/test 切分
+└── manifests/   # session manifest 与元数据
+```
+
+### 命名建议
+
+建议图片命名格式：
+
+```text
+<session_id>_<camera_id>_<timestamp_ns>_<frame_index>.jpg
+```
+
+### 注意事项
+
+- 不要默认把大体量原始数据直接提交到 Git
+- manifest 和小体量样例可以保留在仓库中
+- 真实数据建议通过对象存储或专用数据盘管理
+
+
+
